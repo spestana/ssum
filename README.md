@@ -14,7 +14,7 @@ Alternatively, set up the environment manually with conda:
 
 `conda activate ssumenv`
 
-`conda install xarray rioxarray pandas numpy matplotlib`
+`conda install xarray rioxarray pandas numpy matplotlib jupyter`
 
 `conda install -c anaconda ipykernel`
 
