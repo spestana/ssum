@@ -21,3 +21,9 @@ Alternatively, set up the environment manually with conda:
 `python -m ipykernel install --user --name=ssum`
 
 `conda env export > environment.yml`
+
+## Plots
+
+![SWE plots](figures/swe-mountainsmasked.jpg)
+
+![Forest plots](figures/forest-mountainsmasked.jpg)
