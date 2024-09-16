@@ -1,0 +1,81 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var elev = ee.Image("USGS/GMTED2010"),
+    ndsiVis = {"opacity":1,"bands":["NDSI_Snow_Cover"],"min":1.9000000000000001,"max":93.1,"palette":["181818","1668ff"]};
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// ===========================================================================================================================
+// Producing global figures.  
+// This is the code used for printing Figure 2 (Input datasets for baseline classifications of snow sensor usability)
+// This figure shows each input into the snow sensor maps for the Northern Hemisphere
+// Demonstrated Capability is defined as: 
+// LST < 0 °C, NDSI > 0.40, <20% forest cover, and <150mm SWE 
+// ===========================================================================================================================
+// Assign Figure Palettes 
+var classifyVis = {"bands": ["Sensor_Classification"], "min": 0, "max": 2, "palette": ["c15433","1d8e30","dcd72b"]};
+var LSTvis = {"bands":["LST_avg"],"min":-8,"max":7,"palette":["f0f0f0", "bdbdbd", "636363", "000000"]};
+var treeCanopyCoverVis = {"bands": ['TCC_avg'], min: 0.0, max: 100.0, palette: ['000000', 'afce56', '5f9c00', '0e6a00', '003800']};
+var sweVis = {"bands":["SWE_avg"],"max":200,"palette":['#3182bd', '#9ecae1','#deebf7']};
+var mtnVis = {"opacity":0.52,"bands":["b1_1"],"gamma":1.034};
+var imageVisParam = {"opacity":1,"bands":["be75"],"palette":["000022"]};
+//var ndsiVis = {"bands":["NDSI_max"],"min":0,"max":1,"palette":["000000","8e47ff","37ecff","0524ff"]};
+
+// Define Spatial Extent
+var rectangle = ee.Geometry.Polygon(
+        [[[-168, 85],
+          [-168, 20],
+          [180, 20],
+          [180, 85]]], null, false);
+Map.addLayer(rectangle, {}, 'spatial extent')
+
+// Function to land-water mask for visualization
+// remove faulty cover values for the oceans and water bodies
+var hansenImage = ee.Image('UMD/hansen/global_forest_change_2013').clip(rectangle);
+var data = hansenImage.select('datamask');
+var waterMask = data.eq(1);
+// final mask, excluding water bodies and
+// areas with a too short of a winter season
+function mask (image) {
+  return image.mask(waterMask)
+}
+
+// Mask out the mountains from the classification
+// give masked values (non-mountainous areas) a value
+// add masked values as a new band
+var mtnsnow_classes = ee.Image("users/victorialy/mountains/MODIS_mtnsnow_classes")
+var unmask = mtnsnow_classes.addBands(mtnsnow_classes.unmask(-999) )
+
+// Function to reproject each image in the image collection
+function reproject (image) {
+  var reproject = image.reproject({
+      'crs': "EPSG:4326",
+      'scale': 25000
+      })
+  return reproject
+}
+
+// ===========================================================================================================================
+
+// Make a mask of non-mountainous areas
+var non_mtn = unmask.select('b1_1').eq(-999)
+var non_mtn_25km = reproject(non_mtn)
+non_mtn_25km = non_mtn.mask(non_mtn_25km).mask(waterMask)
+Map.addLayer(non_mtn_25km, mtnVis, 'mountains masked')
+
+// Mask oceans
+var ocean = elev.lte(0)
+Map.addLayer(ocean.mask(ocean), imageVisParam, 'oceans masked', false);
+
+// Load exported results 
+var image = ee.Image("users/victorialy/SSUM/PM_SSUM_10km_month02");
+//var image = ee.Image("users/victorialy/SSUM/PM_SSUM_25km_month02");
+var image_lst = image.select(0)
+var image_tcc = image.select(1)
+var image_swe = image.select(2)
+var image_ndsi = image.select(3)
+
+Map.addLayer(image, classifyVis, 'February Snow Sensor Usability Map')
+Map.addLayer(image_lst, LSTvis, 'February LST')
+Map.addLayer(image_tcc, treeCanopyCoverVis, 'February TCC')
+Map.addLayer(image_swe, sweVis, 'February SWE')
+//Map.addLayer(image_ndsi, LSTvis, 'February NDSI')
+
+

@@ -1,0 +1,53 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+var masks = require('users/spestana/ssum:function_modules/masks'); // functions that give us mountain, water body masks
+
+
+// Leaf Area Index (LAI)
+exports.lai = function(startDate, endDate, month, roi, reproject) {
+  // Filter collection
+  var LAI = ee.ImageCollection("MODIS/006/MCD15A3H");
+  // Select LAI between start and end date
+  var LAIcollection = LAI.select('Lai').filterDate(startDate, endDate); 
+
+  // Make a list of months
+  var months = ee.List.sequence(1,12);
+  // Calculate mean for each pixel, aggregating by month 
+  var LAImean = ee.ImageCollection.fromImages(
+    months.map(function(m) {
+      return LAIcollection.filter(ee.Filter.calendarRange(m,m, 'month'))
+      .mean()
+      .multiply(0.1)
+      .rename('TCC_avg') //this is actually LAI_avg, but for classification we need to use the same name as TCC
+      .set('month', m);
+    }));
+  //print('LAI mean:', LAImean);
+
+  // Make a list of monthly composites and select a month
+  var LAIlist = LAImean.toList(LAImean.size());
+  var LAImonth = ee.Image(LAIlist.get(month)).select('TCC_avg');
+
+  // mask out water bodies
+  //var LAImonth_masked = LAImonth.mask(masks.water_mask(roi));
+  
+  // Reproject to common resolution
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var LAImonth_reproject = utils.common_reproject(LAImonth);
+  }
+  else {
+    var LAImonth_reproject = LAImonth;
+  }
+  
+
+  // clip to ROI
+  var LAImonth_roi = LAImonth_reproject.clip(roi);
+
+  // return the LAI map
+  return LAImonth_roi;
+}
+
+
+
+

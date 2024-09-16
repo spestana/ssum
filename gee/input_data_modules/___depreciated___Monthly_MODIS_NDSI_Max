@@ -1,0 +1,60 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+var masks = require('users/spestana/ssum:function_modules/masks'); // functions that give us mountain, water body masks
+
+
+// Normalized Difference Snow Index (NDSI)
+exports.snow_mask = function(startDate, endDate, month, roi, reproject) {
+
+  // MODIS 8 day Surface Reflectance
+  var modis_sr = ee.ImageCollection('MODIS/006/MOD09A1').filterDate(startDate,endDate);
+  
+  // Function to calculate snow index using band 4 (green) and band 6 (SWIR)
+  // Riggs et al. 1994. NDSI = (green – SWIR) / (green + SWIR)
+  var calcNDSI = function(img) {
+    var ndsi = img.normalizedDifference(['sur_refl_b04','sur_refl_b06']).rename('NDSI');
+    return img.addBands(ndsi);
+  }; 
+
+  // Run the NDSI function over MODIS collection
+  var NDSI = modis_sr.map(calcNDSI).select('NDSI');
+  
+  // Make a list of months
+  var months = ee.List.sequence(1,12);
+  // Calculate max for each pixel, aggregating by month 
+  var ndsiMax = ee.ImageCollection.fromImages(
+    months.map(function(m) {
+      return NDSI.filter(ee.Filter.calendarRange(m,m, 'month'))
+      .max()
+      .rename('NDSI_max')
+      .set('month', m);
+    }));
+  //print('NDSI max:', ndsiMax);
+  
+  // Make a list of monthly composites and select a month
+  var ndsiList = ndsiMax.toList(ndsiMax.size());
+  var ndsiMonth = ee.Image(ndsiList.get(month)).select('NDSI_max');
+  // Snow is where NDSI > 0.40. 
+  var SnowOnMask = ndsiMonth.gt(0.40)
+  //Map.addLayer(SnowOnMask, SnowOnVis, 'snow on')
+  
+  // mask out water bodies
+  //var SnowOnMask_masked = SnowOnMask.mask(masks.water_mask(roi));
+  
+  //Upscale the pixels
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var SnowOnMask_reprojected = utils.common_reproject(SnowOnMask);
+  }
+  else {
+    var SnowOnMask_reprojected = SnowOnMask;
+  }
+  
+  // clip to ROI
+  var SnowOnMask_roi = SnowOnMask_reprojected.clip(roi);
+  
+  // return NDSI-based snow mask
+  return SnowOnMask_roi;
+
+};

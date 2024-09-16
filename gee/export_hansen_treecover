@@ -1,0 +1,24 @@
+// Load the Hansen et al., TCC dataset and select a layer
+var hansen_treecover2000 = ee.Image('UMD/hansen/global_forest_change_2019_v1_7').select('treecover2000');
+
+// Create a geometry object for North America
+var geometry = ee.Geometry.Polygon([[[-169.0, 72.0],
+                                   [-169.0, 24.0],
+                                   [-51.0, 24.0],
+                                   [-51.0, 72.0]]]).bounds();
+
+
+
+// Clip TCC image to North America
+var hansen_treecover2000_northamerica = hansen_treecover2000.clip(geometry);
+
+// Export the image, specifying scale and region.
+Export.image.toDrive({
+  image: hansen_treecover2000_northamerica,
+  description: 'hansen_treecover2000_northamerica',
+  scale: 30,
+  region: geometry,
+  maxPixels: 1e13
+});
+
+Map.addLayer(hansen_treecover2000_northamerica);

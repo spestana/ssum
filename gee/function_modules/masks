@@ -1,0 +1,120 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+
+
+// Mountain mask
+exports.mountain_mask = function(roi, apply_common_reproject) {
+
+  // Mountain snow classes map
+  var mtnsnow_classes = ee.Image("users/victorialy/mountains/MODIS_mtnsnow_classes");
+  // Mask out the mountains from the classification
+  // give masked values (non-mountainous areas) a value
+  // add masked values as a new band
+  //var mtnsnow_classes = ee.Image("users/victorialy/MODIS_mtnsnow_classes");
+  var unmask = mtnsnow_classes.addBands(mtnsnow_classes.unmask(-999));
+  // Make a mask of non-mountainous areas
+  var mtn_mask = unmask.select('b1_1').eq(-999).rename('mountains');
+  
+  // default common_reproject optiom to false
+  if (apply_common_reproject === undefined){var apply_common_reproject = false}
+  // if common_reproject = true, then reproject the mask
+  if (apply_common_reproject) {
+    mtn_mask = utils.common_reproject(mtn_mask);
+  }
+  
+  // To turn this back into a binary mask, use 50% as the cutoff threshold  (>= 50% is mountain)
+  var mtn_mask_binary = mtn_mask.gte(0.50)
+  
+  // Clip to ROI
+  var mtn_mask_clipped = mtn_mask_binary.clip(roi);
+  
+  // Return the mountain mask
+  return mtn_mask_clipped;
+};
+
+// Water mask
+exports.water_mask = function(roi, apply_common_reproject) {
+
+  // Water bodies mask
+  var hansenImage = ee.Image('UMD/hansen/global_forest_change_2019_v1_7'); 
+  // remove faulty cover values for the oceans and water bodies
+  var data = hansenImage.select('datamask'); // datamask contains: no data (0), mapped land surface (1), and permanent water bodies (2)
+  var waterMask = data.eq(1); // we're going to select only the land surface
+  
+  // default common_reproject optiom to false
+  if (apply_common_reproject === undefined){var apply_common_reproject = false}
+  // if common_reproject = true, then reproject the mask
+  if (apply_common_reproject) {
+    waterMask = utils.common_reproject(waterMask);
+  }
+  
+  // To turn this back into a binary mask, use 50% as the cutoff threshold (>= 50% is water)
+  var waterMask_binary = waterMask.gte(0.50)
+  
+  // clip water mask to ROI
+  var water_mask_clipped = waterMask_binary.clip(roi);
+  // return water mask
+  return water_mask_clipped;
+};
+
+
+// Normalized Difference Snow Index (NDSI)
+exports.snow_mask = function(startDate, endDate, month, roi, apply_common_reproject) {
+
+  // MODIS 8 day Surface Reflectance
+  var modis_sr = ee.ImageCollection('MODIS/006/MOD09A1').filterDate(startDate,endDate);
+  
+  // Function to calculate snow index using band 4 (green) and band 6 (SWIR)
+  // Riggs et al. 1994. NDSI = (green – SWIR) / (green + SWIR)
+  var calcNDSI = function(img) {
+    var ndsi = img.normalizedDifference(['sur_refl_b04','sur_refl_b06']).rename('NDSI');
+    return img.addBands(ndsi);
+  }; 
+
+
+  
+  //////////// Iterate through all months to get monthly maximum NDSI //////////
+  //// Make a list of months
+  //var months = ee.List.sequence(1,12);
+  //// Calculate max for each pixel, aggregating by month 
+  //var ndsiMax = ee.ImageCollection.fromImages(
+  //  months.map(function(m) {
+  //    return NDSI.filter(ee.Filter.calendarRange(m,m, 'month'))
+  //    .max()
+  //    .rename('NDSI_max')
+  //    .set('month', m);
+  //  }));
+  ////print('NDSI max:', ndsiMax);
+  //// Make a list of monthly composites and select a month
+  //var ndsiList = ndsiMax.toList(ndsiMax.size());
+  //var ndsiMonth = ee.Image(ndsiList.get(month)).select('NDSI_max');
+  
+   ////////// Get monthly maximum NDSI for just this month (slightly faster) //////////
+  // Select only MODIS images from our month of interest
+  var modis_sr_month = modis_sr.filter(ee.Filter.calendarRange(month, month, 'month'))
+  // Run the NDSI function over MODIS collection
+  var NDSI = modis_sr_month.map(calcNDSI).select('NDSI');
+  // Select max NDSI across these months
+  var ndsiMonth = NDSI.max().rename('NDSI_max');
+  
+  //Upscale the pixels
+  // default reproject to true
+  if (apply_common_reproject === undefined){var apply_common_reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (apply_common_reproject) {
+    var ndsiMonth_reprojected = utils.common_reproject(ndsiMonth);
+  }
+  else {
+    var ndsiMonth_reprojected = ndsiMonth;
+  }
+  
+  // Snow is where NDSI >= 0.40. 
+  var SnowOnMask_reprojected = ndsiMonth_reprojected.gte(0.40)
+  //Map.addLayer(SnowOnMask, SnowOnVis, 'snow on')
+  
+  // clip to ROI
+  var SnowOnMask_roi = SnowOnMask_reprojected.clip(roi);
+  
+  // return NDSI-based snow mask
+  return SnowOnMask_roi;
+
+};

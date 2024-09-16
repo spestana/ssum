@@ -1,0 +1,30 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+var masks = require('users/spestana/ssum:function_modules/masks'); // functions that give us mountain, water body masks
+
+
+//-----------------------------------------------------------------------
+// Tree Canopy Cover
+//-----------------------------------------------------------------------
+
+exports.tcc = function(roi, reproject) {
+  // Import Hansen et al. Tree Canopy Cover
+  // Import Tree Canopy Cover [25km] and reproject/resample 
+  var hansen_treecover2000 = ee.Image("UMD/hansen/global_forest_change_2019_v1_7").select('treecover2000').rename('TCC_avg');
+  //var hansen_treecover2000 = ee.Image("UMD/hansen/global_forest_change_2018_v1_6").select('treecover2000').rename('TCC_avg');
+  // mask out water bodies
+  //var hansen_treecover2000_masked = hansen_treecover2000.mask(masks.water_mask(roi));
+  // Reproject to common resolution
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var hansen_treecover2000_repr = utils.common_reproject(hansen_treecover2000);
+  }
+  else {
+    var hansen_treecover2000_repr = hansen_treecover2000;
+  }
+  // clip to the region of interest
+  var tcc_clipped = hansen_treecover2000_repr.clip(roi);
+  // return the TCC map
+  return tcc_clipped;
+};

@@ -1,0 +1,169 @@
+var masks = require('users/spestana/ssum:function_modules/masks'); // functions that give us mountain, water body masks
+
+//-----------------------------------------------------------------------
+// Parameterizations (Thresholds)
+//-----------------------------------------------------------------------
+
+// Define Tree Canopy Cover thresholds [%] 
+//var lowerbound_trees = 50; //20 or 50
+//var upperbound_trees = 75; //30 or 75
+
+// Define Snow Melt thresholds with Land Surface Temperature [Celsius]
+var zero = ee.Number(0); // we need to force zero to be a float
+var upperbound_LST = zero;
+
+// Define SWE thresholds [mm]
+//var lowerbound_SWE = 10;
+//var upperbound_SWE = 150; // 150 or 200
+
+// Define slope thresholds [degrees]
+// var lowerbound_slope = 1.6
+// var upperbound_slope = 2.5;
+
+// Define NDSI thresholds, Hall et al.
+// NDSDI > 0.4 indicates snow presence
+//var upperbound_NDSI = 0.40;
+
+//-----------------------------------------------------------------------
+
+
+//Function to classify image based on defined parameters and thresholds
+function toClassify(image, lowerbound_trees, upperbound_trees, upperbound_SWE) {
+  var classification = image.expression(
+  //"b('LST_avg')< -upperbound_LST  && b('NDSI_max')==1 && b('TCC_avg')<=lowerbound_trees && b('SWE_avg')<=upperbound_SWE ? 1" + 
+  "b('LST_avg')< -upperbound_LST  && b('TCC_avg')<=lowerbound_trees && b('SWE_avg')<=upperbound_SWE ? 1" + 
+  ": b('LST_avg')> upperbound_LST ||  b('TCC_avg')>upperbound_trees || b('SWE_avg')>upperbound_SWE ? 0" +
+  ": 2", 
+  { 
+    'upperbound_LST': upperbound_LST,
+    'lowerbound_trees': lowerbound_trees,
+    'upperbound_trees': upperbound_trees,
+    //'lowerbound_SWE': lowerbound_SWE,
+    'upperbound_SWE': upperbound_SWE,
+    })
+  .rename('Sensor_Classification');
+  //.mask(SnowOnMask)
+  //.mask(waterMask)
+  //.mask(non_mtn_mask)
+  //.clip(roi)
+  return classification;
+  }
+
+exports.combine_inputs = function(image1, image2, image3) {
+  //-----------------------------------------------------------------------
+  // Make a new image collection for the classification
+  //-----------------------------------------------------------------------
+  // Use LST as "base layer" of decision tree for wet/dry snow 
+  // and add additional input datasets as bands
+  var InputCollection = image1
+    .addBands(image2)
+    .addBands(image3);
+    //.addBands(slope)
+  //print('Input Layers Collection:', InputCollection);
+  
+  return InputCollection;
+};
+
+
+exports.make_classification_map = function(InputCollection, roi, lowerbound_trees, upperbound_trees, upperbound_SWE) {
+  //-----------------------------------------------------------------------
+  // Classify
+  //-----------------------------------------------------------------------
+
+  // Apply classification functions
+  var classifiedCollection = toClassify(InputCollection, lowerbound_trees, upperbound_trees, upperbound_SWE);
+  //print('Classified Image Collection:', classifiedCollection);
+  
+  // Clip to ROI
+  var classifiedCollection_clipped = classifiedCollection.clip(roi);
+  
+  // Add the classified map to the input collection
+  var finalCollection = InputCollection.addBands(classifiedCollection_clipped);
+  
+  // Return the classified map that's been clipped to the ROI
+  return finalCollection;
+};
+
+exports.calculate_stats = function(classificationMap_masked_Sensor_Classification, classfication_number, roi) {
+  // -----------------------------------------------------------------------
+  // Mask and calculate raster areas classified
+  // -----------------------------------------------------------------------
+
+  // Compute total ROI area
+  // Select all pixels that are not equal to -9999
+  // the result is a map where all our valid classified pixels have a value of 1 (everything else will be masked out)
+  // Then multiply this valid pixel map with the pixel area to get a map of the ROI area
+  var total_roi_area = classificationMap_masked_Sensor_Classification.neq(-9999).multiply(ee.Image.pixelArea());
+  // Then sum the areas of the pixel in the layer to add up the total area within the roi
+  var total_roi_area_px = total_roi_area.reduceRegion({
+    reducer: ee.Reducer.sum(),
+    geometry: roi,
+    scale: 10000,
+    maxPixels: 1e13
+  }).get('Sensor_Classification');
+  // Convert from m2 to km2
+  var total_roi_area_px_km = ee.Number(total_roi_area_px).divide(1e6);
+
+
+  // Select one of the classification numbers from the full classification map 
+  // Choices are... 0 : "not operational", 1 : "operational", 2 : "potential capability"
+  // the result is a map where pixels in our selected class are now assigned a value of 1 and all others assigned a value of 0
+  // Then calculate a new image where each pixel value is it's area
+  // to do this we can simply multiply to get the pixel area for pixels=1 and not for pixels=0
+  var classfication_number_map_area = classificationMap_masked_Sensor_Classification.eq(classfication_number).multiply(ee.Image.pixelArea());
+  // Then sum the areas of the pixel in the layer to add up the total area within the roi
+  var classfication_number_map_area_px = classfication_number_map_area.reduceRegion({
+    reducer: ee.Reducer.sum(),
+    geometry: roi,
+    scale: 10000,
+    maxPixels: 1e13
+  }).get('Sensor_Classification');
+  
+  // Convert from m2 to km2
+  var classfication_number_map_area_px_km = ee.Number(classfication_number_map_area_px).divide(1e6);
+  
+  // Divide the "area covered by this classification" in km^2 by the "total valid area" in km^2 (non mountain, snow only, non water) to get percent of valid area that is of this class
+  var class_number_percent_area = classfication_number_map_area_px_km.divide(total_roi_area_px_km).multiply(100); // multiply by 100 to get percent, not decimal
+  
+  return [class_number_percent_area, classfication_number_map_area_px_km, total_roi_area_px_km];
+  
+};
+
+
+exports.calculate_stats2 = function(classificationMap_masked_Sensor_Classification, roi) {
+  // -----------------------------------------------------------------------
+  // Calculate raster area per class
+  // -----------------------------------------------------------------------
+  
+  // Add the classified image to an ee.Image.pixelArea() image
+  var areaImage = ee.Image.pixelArea().addBands(classificationMap_masked_Sensor_Classification);
+  
+  // Use a grouped reducer to
+  // see https://developers.google.com/earth-engine/reducers_grouping for more information
+  var areas = areaImage.reduceRegion({
+    reducer: ee.Reducer.sum().group({
+      groupField: 1,
+      groupName: 'class',
+    }),
+    geometry: roi,
+    scale: 10000,
+    maxPixels: 1e9,
+    tileScale: 16,
+    bestEffort: true
+  });
+  
+  var classAreas = ee.List(areas.get('groups'))
+  
+  var classAreaLists = classAreas.map(function(item) {
+    var areaDict = ee.Dictionary(item)
+    var classNumber = ee.Number(areaDict.get('class')).format()
+    var area = ee.Number(areaDict.get('sum')).divide(1e6)
+    return ee.List([classNumber, area])
+  })
+  
+  var result = ee.Dictionary(classAreaLists.flatten())
+  
+  return result;
+  
+};
+

@@ -1,0 +1,99 @@
+// Utility functions that are used in other modules.
+
+// Function to reproject each image in the image collection
+exports.common_reproject = function(image) {
+  
+  // reproject does a Nearest Neighbor resampling by itself
+  //var reprojection = image.reproject({
+  //    'crs': "EPSG:4326",
+  //    'scale': 25000 // meters
+  //    });
+  
+  // reduceResolution can let us do a mean resampling, but we have to be careful with some options for running on large datasets
+  // (maxPixels, bestEffort, tileScale)
+  var reprojection = image.setDefaultProjection({crs:'EPSG:4326',scale:1000}).reduceResolution({
+        reducer:ee.Reducer.mean(), 
+        maxPixels: 65536,
+        bestEffort: true,
+        }).reproject({
+            crs:ee.Projection('EPSG:4326').atScale(25000)
+            });
+
+  // return the reprojected image
+  return reprojection;
+};
+
+
+
+// Function to convert LST from Kelvin to Celsius
+exports.modisLST = function(image) {
+  var time = image.get('system:time_start');
+  var LST = image.multiply(0.02) // modis scale factor
+                    .subtract(273.15)
+                    .rename("LST_Celsius")
+                    .set('system:time_start', time);
+  return LST;
+};
+
+
+
+// Function to define and get visualization parameters
+exports.visParams = function(key) {
+  
+  // Define individual visualization parameters
+  var LSTvis = {"bands":["LST_avg"],"min":-8,"max":7,"palette":["4286f4","000b5e","96048f"]};
+  var treeCanopyCoverVis = {"bands": ['TCC_avg'], min: 0.0, max: 100.0, palette: ['000000', 'afce56', '5f9c00', '0e6a00', '003800']};
+  var laiVis = {"bands": ['TCC_avg'], min: 0.0, max: 5.0, palette: ['000000', 'afce56', '5f9c00', '0e6a00', '003800']}; //this is actually LAI_avg, but for classification we need to use the same name as TCC
+  //var sweVis = {"bands":["SWE_avg"],"max":200,"palette":["000000","7ce8ed","21edbe","0c35ff"]};
+  var sweVis = {"opacity":1.0,"bands":["SWE_avg"],"max":300,"palette":["1431ff","64a2ff","34d2cb","44ff41","f3ff41","ff2812"]}
+  var ndsiVis = {"opacity":1.0,"bands":["NDSI_max"],"min":0,"max":1,"palette":["000000","8e47ff","37ecff","0524ff"]};
+  var SnowOnVis = {"palette":["000000","218eff"]}; 
+  var waterVis = {"palette":["0000ff","ffffff"]}; 
+  var classifyVis = {"opacity":1.0, "bands": ["Sensor_Classification"], "min": 0, "max": 2, "palette": ["c15433","1d8e30","dcd72b"]};
+  var slopeVis = {"opacity":0.46,"bands":["slope"],"min":0.032242560386657716,"max":1.5798854589462281,"gamma":1};
+  var mtnVis = {"opacity":1,"bands":["mountains"],"gamma":1};
+  
+  // Define visualization parameter dictionary
+  var visParametersDict = {
+    lst: LSTvis,
+    tcc: treeCanopyCoverVis,
+    lai: laiVis,
+    swe: sweVis,
+    ndsi: ndsiVis,
+    snow_mask: SnowOnVis,
+    water_mask: waterVis,
+    slope: slopeVis,
+    mountains: mtnVis,
+    classes: classifyVis,
+  };
+  
+  // return the vis params for the key given
+  return visParametersDict[key];
+};
+
+// Funtion to return chart options
+exports.chart_options = function() {
+  var options = {
+    title: 'Percent of Area by PM SWE Observation Capability',
+    legend: {position: 'none'},
+    colors: ["c15433","dcd72b","1d8e30"],
+    padding:0,
+    //vAxis: {title: 'Sensitivity Test ID', titleTextStyle: {italic: false, bold: true}},
+    hAxis: {
+      //title: 'percent', titleTextStyle: {italic: false, bold: true},
+      minValue:0,
+      maxValue:1,
+      ticks: [{v:0.0, f:'0%'}, 
+              {v:0.25, f:'25%'}, 
+              {v:0.5, f:'50%'}, 
+              {v:0.75, f:'75%'}, 
+              {v:1.0, f:'100%'}]
+      },
+    height:'100px',
+    //width:'100px',
+    isStacked: 'percent'
+    };
+    
+  return options;
+};
+

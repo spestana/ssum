@@ -1,0 +1,132 @@
+//-----------------------------------------------------------------------
+// Snow Sensor Usability Maps (SSUM)
+// 
+// Goal: Identify where Passive Microwave sensors can  
+//       be best used to observe snow properties
+//
+// Victoria Ly, victorialy.hua@gmail.com (primary author)
+// Steven Pestana, spestana@uw.edu (some code reorganization)
+//-----------------------------------------------------------------------
+// User can specify three main options:
+// -- Parameterizations (thresholds for input parameters, set these in "function_modules/classify")
+// -- Spatial extent (region of interest, defined below here in "main")
+// -- Input parameters (choice of SWE product; choice between LAI or TCC for forest product, defined below here in "main")
+
+/////////////////// Import modules ///////////////////
+// Import modules with shared functions and classifier functions
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+var masks = require('users/spestana/ssum:function_modules/masks'); // functions that give us mountain, water body masks
+var classify = require('users/spestana/ssum:function_modules/classify'); // functions for making the classification maps, including thresholds
+var define_roi = require('users/spestana/ssum:function_modules/define_roi'); // functions for defining the region of interest we want
+// Import modules that handle the input data used in the classification
+var lai = require('users/spestana/ssum:input_data_modules/Monthly_MODIS_LAI_Avg'); // MODIS-based LAI map function
+var tcc = require('users/spestana/ssum:input_data_modules/Hansen_Global_TCC'); // Hansen et al., 2018 based Tree Canopy Coverage
+var lst = require('users/spestana/ssum:input_data_modules/Monthly_MODIS_LST_Avg'); // MODIS-based LST map function
+var seup_swe = require('users/spestana/ssum:input_data_modules/SEUP_SWE_Avg'); // SEUP model-based SWE maps
+var globsnow_swe = require('users/spestana/ssum:input_data_modules/GlobSnow_SWE_Avg'); // GlobSnow SWE maps
+
+
+/////////////////// Set up time range and spatial extent ///////////////////
+// Set which month we want to look at (January=1, December=12)
+var month = ee.Number(1);
+
+// Set time period of interest
+var startDate = '2002-01-01';
+var endDate =  '2018-05-30';
+
+// define our region of interest
+// roi = define_roi.from_continent('North America');
+var roi = define_roi.from_ca_province('Quebec');
+//var roi = define_roi.from_us_state('Ohio');
+
+/////////////////// Set up mask layers ///////////////////
+// For each mask, use "true" option in last argument to resample output to common spatial resolution
+var this_snow_mask = masks.snow_mask(startDate, endDate, month, roi, true); // run the snow mask module that uses MODIS NDSI
+var this_mountain_mask = masks.mountain_mask(roi, true); // mountain mask
+var this_water_mask = masks.water_mask(roi, true); // water mask from Hansen et al. dataset
+
+/////////////////// Make classification map with input layers ///////////////////
+// Use one of these combinations of the three input layers (LST, TCC or LAI, and SWE)
+var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   tcc.tcc(roi, true),                             globsnow_swe.swe(roi, month, true)); var trees='tcc'; var swe='globsnow';
+//var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   tcc.tcc(roi, true),                             seup_swe.noahmp_ecmwf(roi, true)); var trees='tcc'; var swe='noahmp_ecmwf';
+//var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   tcc.tcc(roi, true),                             seup_swe.noahmp_gdas(roi, true)); var trees='tcc'; var swe='noahmp_gdas';
+//var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   lai.lai(startDate, endDate, month, roi, true),  globsnow_swe.swe(roi, month, true)); var trees='lai'; var swe='globsnow';
+//var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   lai.lai(startDate, endDate, month, roi, true),  seup_swe.noahmp_ecmwf(roi, true)); var trees='lai'; var swe='noahmp_ecmwf';
+//var InputCollection = classify.combine_inputs(lst.lst(startDate, endDate, month, roi, true),   lai.lai(startDate, endDate, month, roi, true),  seup_swe.noahmp_gdas(roi, true)); var trees='lai'; var swe='noahmp_gdas';
+// Create the final classification map
+var upperbound_SWE = 150; // SWE upper bound threshold [mm], 150 or 200 
+var lowerbound_trees = 50; // Tree Canopy Cover or Leaf Area Index lower bound threshold [%] 20 or 50 for TCC, 1.8 for LAI [unitless]
+var upperbound_trees = 75; // Tree Canopy Cover or Leaf Area Index lower bound threshold [%] 30 or 75 for TCC, 3.8 for LAI [unitless]
+var classificationMap = classify.make_classification_map(InputCollection, roi, ee.Number(lowerbound_trees), ee.Number(upperbound_trees), ee.Number(upperbound_SWE));
+
+/////////////////// Apply masks to classification map ///////////////////
+//var classificationMap_masked = classificationMap.updateMask(masks.water_mask(roi, true)).updateMask(masks.mountain_mask(roi, true)).updateMask(classificationMap.select('NDSI_max'));
+var classificationMap_masked = classificationMap
+                                .updateMask(this_water_mask)
+                                .updateMask(this_mountain_mask)
+                                .updateMask(this_snow_mask);
+
+//print(classificationMap_masked);
+
+
+///////////////////// Calculate statistics ///////////////////
+
+var classificationMap_stats = classify.calculate_stats2(classificationMap_masked.select('Sensor_Classification'), roi);
+print(classificationMap_stats);
+//Export.table.toDrive({
+//  collection: classificationMap_stats,
+//  description: 'test_classificationMap_stats',//"northamerica_ssum_" + swe + "_" + upperbound_SWE + "_" + trees + "_"  + lowerbound_trees + "-" + upperbound_trees, // filename
+//  //folder: 'ssum_output', // name of the folder to save these into
+//  fileFormat: 'CSV'
+//});
+
+
+/////////////////// Make plots ///////////////////
+// To speed up plotting, first export to a Google Earth Engine asset
+// Export the image to an Earth Engine asset.
+//////////////Export.image.toAsset({
+//////////////  image: classificationMap_masked,
+//////////////  description: 'classificationMap_masked',
+//////////////  assetId: 'tmp/classificationMap_masked',
+//////////////  scale: 2500
+//////////////  //region: geometry,
+//////////////});
+// Plot each input dataset and the final classified map
+//Map.addLayer(classificationMap_masked.select('TCC_avg'), utils.visParams('lai'), 'LAI');
+//Map.addLayer(classificationMap_masked.select('TCC_avg'), utils.visParams('tcc'), 'TCC');
+//Map.addLayer(classificationMap_masked.select('LST_avg'), utils.visParams('lst'), 'LST');
+//Map.addLayer(classificationMap_masked.select('NDSI_max'), utils.visParams('snow_mask'), 'Snow Mask');
+//Map.addLayer(classificationMap_masked.select('SWE_avg'), utils.visParams('swe'), 'SWE');
+Map.addLayer(classificationMap_masked.select('Sensor_Classification'), utils.visParams('classes'), 'Classes');
+//Map.setCenter(-70,55,4.5); // Quebec
+
+// Plot the moutnain mask or water mask for context
+//Map.addLayer(this_mountain_mask, utils.visParams('mountains'), 'Mountains');
+//Map.addLayer(this_water_mask, utils.visParams('water_mask'), 'Water Mask');
+//Map.addLayer(this_snow_mask, utils.visParams('snow_mask'), 'Snow Mask');
+
+// Plot original inputs for context (clipped to ROI but not resampled to common spatial resolution)
+//Map.addLayer(lai.lai(startDate, endDate, month, roi, false), utils.visParams('tcc'), 'input LAI');
+//Map.addLayer(tcc.tcc(roi, false), utils.visParams('tcc'), 'input TCC');
+//Map.addLayer(lst.lst(startDate, endDate, month, roi, false), utils.visParams('lst'), 'input LST');
+//Map.addLayer(snow_mask.snow_mask(startDate, endDate, month, roi, false), utils.visParams('snow_mask'), 'input Snow Mask');
+//Map.addLayer(globsnow_swe.swe(roi, month, false), utils.visParams('swe'), 'input SWE');
+
+
+
+/////////////////// Export a map ///////////////////
+// Export the image
+ Export.image.toDrive({
+   image: classificationMap_masked.toFloat(), // convert all layers to float values, this should preserve nan values that are masked out
+   description: "quebec_ssum_" + swe + "_" + upperbound_SWE + "_" + trees + "_"  + lowerbound_trees + "-" + upperbound_trees, // filename
+   folder: 'ssum_output', // name of the folder to save these into
+   scale: 25000, // 25 km 
+   region: roi, // roi geometry
+   //skipEmptyTiles: true,
+   fileFormat: 'GeoTIFF'
+   //formatOptions: {
+   //  cloudOptimized: true
+   //},
+   //maxPixels: 1e9
+    });
+//

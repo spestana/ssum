@@ -1,0 +1,29 @@
+// Set start and end dates for analysis
+var startDate = '2002-01-01';
+var endDate = '2018-05-30';
+
+// Load the MODIS LAI dataset and filter to time period of interest
+var modis_lai_collection = ee.ImageCollection("MODIS/006/MCD15A3H").select('Lai').filterDate(startDate, endDate); 
+
+// Create a single LAI image that is the mean of all Februrary LAI images, multiply by 0.1 to un-scale the image values
+var modis_lai_febmean = modis_lai_collection.filter(ee.Filter.calendarRange(2,2, 'month')).mean().multiply(0.1);
+
+// Create a geometry object for North America
+var geometry = ee.Geometry.Polygon([[[-169.0, 72.0],
+                                   [-169.0, 24.0],
+                                   [-51.0, 24.0],
+                                   [-51.0, 72.0]]]).bounds();
+
+// Clip LAI image to North America
+var modis_lai_febmean_northamerica = modis_lai_febmean.clip(geometry);
+
+// Export the image, specifying scale and region.
+Export.image.toDrive({
+  image: modis_lai_febmean_northamerica,
+  description: 'modis_lai_febmean_northamerica',
+  scale: 500,
+  region: geometry,
+  maxPixels: 1e13
+});
+
+Map.addLayer(modis_lai_febmean_northamerica);

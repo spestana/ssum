@@ -1,0 +1,54 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+
+
+// NoahMP GDAS model Snow Water Equivalent (SWE) map, from SEUP
+exports.noahmp_gdas = function(roi, reproject) {
+  
+  // Import SEUP SWE Maps from "users/spestana/SEUP"
+  //var seup1 = ee.Image("users/spestana/SEUP/SEUP_swe_allLSM_ensemble_avg_febmean_mm");
+  var NoahMP_GDAS = ee.Image("users/spestana/SEUP/swe_noahmp_gdas_febmean_mm");
+
+  // Reproject
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var SWE_reprojected = utils.common_reproject(NoahMP_GDAS).select('b1').rename('SWE_avg');
+  }
+  else {
+    var SWE_reprojected = NoahMP_GDAS.select('b1').rename('SWE_avg');
+  }
+  
+  
+  // Clip to ROI
+  var SWEClip_roi = SWE_reprojected.clip(roi);
+  
+  // return SWE
+  return SWEClip_roi;
+  
+};
+
+// NoahMP ECMWF model Snow Water Equivalent (SWE) map, from SEUP
+exports.noahmp_ecmwf = function(roi, reproject) {
+  
+  // Import SEUP SWE Maps from "users/spestana/SEUP
+  var NoahMP_ECMWF = ee.Image("users/spestana/SEUP/swe_noahmp_ecmwf_febmean_mm");
+    
+  // Reproject
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var SWE_reprojected = utils.common_reproject(NoahMP_ECMWF).select('b1').rename('SWE_avg');
+  }
+  else {
+    var SWE_reprojected = NoahMP_ECMWF.select('b1').rename('SWE_avg');
+  }
+  
+  // Clip to ROI
+  var SWEClip_roi = SWE_reprojected.clip(roi);
+  
+  // return SWE
+  return SWEClip_roi;
+  
+};

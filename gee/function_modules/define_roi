@@ -1,0 +1,40 @@
+// Functions for selecting a region of interest
+
+// Set ROI from a continent or "world region"
+exports.from_continent = function(continent) {
+  // Load the USDOS Large Scale International Boundary Polygons
+  var boundary_dataset = ee.FeatureCollection('USDOS/LSIB_SIMPLE/2017');
+  // Define a region of interest from the boundary_dataset - continent
+  // Northern Hemisphere options include: 'Europe', 'Central Asia', 'E Asia', 'N Asia', 'North America')
+  var roi = boundary_dataset.filterMetadata('wld_rgn', 'equals', continent);
+  return roi;
+};
+
+// Set ROI from a Canadian province
+exports.from_ca_province = function(province) {
+  // Import Canada shapefile
+  var CA = ee.FeatureCollection("users/victorialy/shapefiles/Canada_Shapefile");
+  var roi = CA.filter(ee.Filter.eq("NAME", province)); // selects a province, such as "Quebec"
+  return roi;
+};
+
+// Set ROI from US state
+exports.from_us_state = function(state) {
+  // Import US shapefile
+  var US = ee.FeatureCollection("TIGER/2018/States");
+  var roi = US.filterMetadata('NAME', 'equals', state); // selects a state, such as 'Colorado'
+  return roi;
+};
+
+// Set a rectangular ROI from minimum and maximum longitude and latitude values
+exports.from_latlon = function(minlon, maxlon, minlat, maxlat) {
+  // For example, the CLPX study area would be from_latlon(-108.5, -105.5, 38.5, 40.5)
+  var roi = ee.Geometry.Polygon([[minlon, minlat], [maxlon, minlat], [maxlon, maxlat], [minlon, maxlat]]);
+  return roi;
+};
+
+// Set a rectangular ROI for the CLPX study area
+exports.clpx = function() {
+  var roi = ee.Geometry.Polygon([[-108.5, 38.5], [-105.5, 38.5], [-105.5,40.5], [-108.5, 40.5]]);
+  return roi;
+};

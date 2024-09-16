@@ -1,0 +1,36 @@
+var utils = require('users/spestana/ssum:function_modules/utils'); // shared functions
+
+
+// GlobSnow Snow Water Equivalent (SWE) maps
+exports.swe = function(roi, month, reproject) {
+  
+  // GlobSnow SWE Maps image collection from "users/victorialy/GlobSnow_2000_2016/GlobSnow_SWE_L3B_month_2000_2016"
+  var globsnow = ee.ImageCollection("users/victorialy/GlobSnow_2000_2016/GlobSnow_SWE_L3B_month_2000_2016");
+
+  // convert image collection to list
+  var globsnow_list = globsnow.toList(globsnow.size());
+  
+  // Select GlobSnow SWE for our chosen month
+  var SWEmonth = ee.Image(globsnow_list.get(month)).select('b1').rename('SWE_avg');
+  
+  // Mask out zero values
+  var SWEmonth_masked = SWEmonth.mask(SWEmonth) // will mask out where SWEmonth is zero, retain values elsewhere
+  
+  // Reproject
+  // default reproject to true
+  if (reproject === undefined){var reproject = true}
+  // if reproject = true, then reproject before clipping
+  if (reproject) {
+    var SWEmonth_reprojected = utils.common_reproject(SWEmonth_masked);
+  }
+  else {
+    var SWEmonth_reprojected = SWEmonth_masked;
+  }
+  
+  // Clip SWE map to ROI
+  var SWEClip_roi = SWEmonth_reprojected.clip(roi);
+  
+  // return SWE
+  return SWEClip_roi;
+  
+};
